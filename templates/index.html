@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Speech Emotion Recognition</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="card">
+    <h1>🎤 Speech Emotion Recognition</h1>
+    <p>Upload an audio file or record live</p>
+
+    <!-- Upload audio -->
+    <form method="POST" enctype="multipart/form-data">
+        <input type="file" name="audio" accept=".wav">
+        <button type="submit">Analyze Audio</button>
+    </form>
+
+    <hr style="margin:20px 0;">
+
+    <!-- Live recording -->
+    <button onclick="startRecording()">🎙 Start Recording</button>
+    <button onclick="stopRecording()">⏹ Stop Recording</button>
+
+    {% if prediction %}
+        <div class="result">
+            <h2>Predicted Emotion</h2>
+            <h1 class="emotion">{{ prediction }}</h1>
+            <p>Confidence: {{ confidence }}%</p>
+        </div>
+    {% endif %}
+
+    {% if explanation %}
+        <div class="result">
+            <h3>🔍 Why this emotion?</h3>
+            <ul>
+                {% for item in explanation %}
+                    <li>{{ item }}</li>
+                {% endfor %}
+            </ul>
+        </div>
+    {% endif %}
+</div>
+
+<script>
+let mediaRecorder;
+let audioChunks = [];
+
+function startRecording() {
+    navigator.mediaDevices.getUserMedia({ audio: true })
+        .then(stream => {
+            mediaRecorder = new MediaRecorder(stream);
+            mediaRecorder.start();
+            audioChunks = [];
+
+            mediaRecorder.ondataavailable = event => {
+                audioChunks.push(event.data);
+            };
+        });
+}
+
+function stopRecording() {
+    mediaRecorder.stop();
+    mediaRecorder.onstop = () => {
+        const blob = new Blob(audioChunks, { type: 'audio/wav' });
+        const formData = new FormData();
+        formData.append('audio', blob, 'recorded.wav');
+
+        fetch('/', {
+            method: 'POST',
+            body: formData
+        }).then(() => location.reload());
+    };
+}
+</script>
+</body>
+</html>
