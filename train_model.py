@@ -1,35 +1,75 @@
 import pandas as pd
-from sklearn.model_selection import train_test_split
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import accuracy_score
 import joblib
 
-# Load dataset
-df = pd.read_csv("all_handcrafted_data_tess.csv")
+from sklearn.model_selection import train_test_split
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import accuracy_score, classification_report
 
-# 🔍 Drop non-numeric columns
-df = df.drop(columns=["path", "source"])
+# ===============================
+# LOAD HANDCRAFTED FEATURE DATA
+# ===============================
+CSV_PATH = "all_handcrafted_data_tess.csv"
 
-# Separate features and labels
-X = df.drop(columns=["class"])   # all numeric features
-y = df["class"]                  # emotion label
+print("📥 Loading dataset...")
+df = pd.read_csv(CSV_PATH)
 
-# Train-test split
+print("📊 Dataset Shape:", df.shape)
+print("📊 Columns:", df.columns.tolist())
+
+# ===============================
+# CLEAN DATA
+# ===============================
+# Drop non-feature columns if present
+drop_cols = ["path", "source"]
+for col in drop_cols:
+    if col in df.columns:
+        df = df.drop(columns=[col])
+
+# Target column
+TARGET_COL = "class"
+
+if TARGET_COL not in df.columns:
+    raise ValueError("❌ 'class' column not found in dataset")
+
+# ===============================
+# SPLIT FEATURES & LABELS
+# ===============================
+X = df.drop(columns=[TARGET_COL])
+y = df[TARGET_COL]
+
 X_train, X_test, y_train, y_test = train_test_split(
-    X, y, test_size=0.2, random_state=42, stratify=y
+    X,
+    y,
+    test_size=0.2,
+    random_state=42,
+    stratify=y
 )
 
-# Train model
+# ===============================
+# TRAIN RANDOM FOREST
+# ===============================
 model = RandomForestClassifier(
-    n_estimators=200,
-    random_state=42
+    n_estimators=300,
+    max_depth=20,
+    random_state=42,
+    n_jobs=-1
 )
+
+print("🚀 Training model...")
 model.fit(X_train, y_train)
 
-# Evaluate
+# ===============================
+# EVALUATION
+# ===============================
 y_pred = model.predict(X_test)
-print("Training Accuracy:", accuracy_score(y_test, y_pred))
 
-# Save trained model
+accuracy = accuracy_score(y_test, y_pred)
+print("\n✅ Test Accuracy:", round(accuracy, 4))
+print("\n📄 Classification Report:\n")
+print(classification_report(y_test, y_pred))
+
+# ===============================
+# SAVE MODEL
+# ===============================
 joblib.dump(model, "model.joblib")
-print("Model saved as model.joblib")
+print("\n💾 Model saved as model.joblib")

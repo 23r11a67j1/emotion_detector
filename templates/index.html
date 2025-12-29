@@ -5,39 +5,31 @@
     <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
+
 <div class="card">
     <h1>🎤 Speech Emotion Recognition</h1>
-    <p>Upload an audio file or record live</p>
+    <p><b>Unveiling Hidden Factors: Explainable AI for Feature Boosting in Speech Emotion Recognition</b></p>
 
-    <!-- Upload audio -->
     <form method="POST" enctype="multipart/form-data">
         <input type="file" name="audio" accept=".wav">
         <button type="submit">Analyze Audio</button>
     </form>
 
-    <hr style="margin:20px 0;">
+    <hr>
 
-    <!-- Live recording -->
     <button onclick="startRecording()">🎙 Start Recording</button>
     <button onclick="stopRecording()">⏹ Stop Recording</button>
 
     {% if prediction %}
-        <div class="result">
-            <h2>Predicted Emotion</h2>
-            <h1 class="emotion">{{ prediction }}</h1>
-            <p>Confidence: {{ confidence }}%</p>
-        </div>
+        <h2>Predicted Emotion</h2>
+        <h1 style="color: yellow;">{{ prediction }}</h1>
+        <p>Confidence: {{ confidence }}%</p>
     {% endif %}
 
-    {% if explanation %}
-        <div class="result">
-            <h3>🔍 Why this emotion?</h3>
-            <ul>
-                {% for item in explanation %}
-                    <li>{{ item }}</li>
-                {% endfor %}
-            </ul>
-        </div>
+    {% if human_explanation %}
+        <hr>
+        <h3>🔍 Explainable AI Insight</h3>
+        <p>{{ human_explanation }}</p>
     {% endif %}
 </div>
 
@@ -52,9 +44,7 @@ function startRecording() {
             mediaRecorder.start();
             audioChunks = [];
 
-            mediaRecorder.ondataavailable = event => {
-                audioChunks.push(event.data);
-            };
+            mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
         });
 }
 
@@ -72,5 +62,6 @@ function stopRecording() {
     };
 }
 </script>
+
 </body>
 </html>
