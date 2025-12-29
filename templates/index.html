@@ -10,57 +10,365 @@
     <h1>🎤 Speech Emotion Recognition</h1>
     <p><b>Unveiling Hidden Factors: Explainable AI for Feature Boosting in Speech Emotion Recognition</b></p>
 
-    <form method="POST" enctype="multipart/form-data">
-        <input type="file" name="audio" accept=".wav">
-        <button type="submit">Analyze Audio</button>
+    <!-- File Upload Section -->
+    <form method="POST" enctype="multipart/form-data" id="uploadForm">
+        <input type="file" name="audio" accept="audio/*" id="audioFile">
+        <button type="submit" id="uploadBtn">Analyze Audio</button>
     </form>
 
     <hr>
 
-    <button onclick="startRecording()">🎙 Start Recording</button>
-    <button onclick="stopRecording()">⏹ Stop Recording</button>
+    <!-- Live Recording Section -->
+    <div id="recordingSection">
+        <button id="recordBtn" onclick="toggleRecording()">
+            🎙 Start Recording
+        </button>
+        <button id="stopBtn" onclick="stopRecording()" disabled>
+            ⏹ Stop Recording
+        </button>
+        
+        <!-- Recording Indicator -->
+        <div id="recordingIndicator" class="recording-indicator hidden">
+            <span class="pulse"></span>
+            <span id="recordingTimer">00:00</span>
+        </div>
+        
+        <!-- Audio Waveform Visualization (Optional) -->
+        <canvas id="waveform" class="waveform hidden"></canvas>
+    </div>
 
+    <!-- Error Display -->
+    {% if error %}
+        <div class="error-message">
+            <p>❌ {{ error }}</p>
+        </div>
+    {% endif %}
+
+    <!-- Results Section -->
     {% if prediction %}
-        <h2>Predicted Emotion</h2>
-        <h1 style="color: yellow;">{{ prediction }}</h1>
-        <p>Confidence: {{ confidence }}%</p>
+        <div class="result-section">
+            <h2>Predicted Emotion</h2>
+            <h1 class="emotion">{{ prediction }}</h1>
+            <p>Confidence: {{ confidence }}%</p>
+        </div>
     {% endif %}
 
     {% if human_explanation %}
         <hr>
-        <h3>🔍 Explainable AI Insight</h3>
-        <p>{{ human_explanation }}</p>
+        <div class="explanation-section">
+            <h3>🔍 Explainable AI Insight - Hidden Factors Revealed</h3>
+            <div class="explanation-text">
+                {% for line in human_explanation.split('\n') %}
+                    {% if line.strip() %}
+                        <p>{{ line }}</p>
+                    {% endif %}
+                {% endfor %}
+            </div>
+            
+            {% if top_features %}
+            <div class="feature-importance-section">
+                <h4>Top Contributing Features (Feature Importance)</h4>
+                <ul class="feature-list">
+                    {% for feature_name, importance in top_features[:10] %}
+                    <li>
+                        <span class="feature-name">{{ feature_name.replace('_', ' ').title() }}</span>
+                        <span class="feature-bar">
+                            {% set max_importance = top_features[0][1] %}
+                            {% if max_importance > 0 %}
+                            {% set width_pct = (importance / max_importance * 100)|round(1)|int %}
+                            <span class="feature-fill" data-width="{{ width_pct }}"></span>
+                            {% else %}
+                            <span class="feature-fill" data-width="0"></span>
+                            {% endif %}
+                        </span>
+                        <span class="feature-value">{{ "%.3f"|format(importance) }}</span>
+                    </li>
+                    {% endfor %}
+                </ul>
+            </div>
+            {% endif %}
+        </div>
     {% endif %}
+
+    <!-- Loading Indicator -->
+    <div id="loadingIndicator" class="loading hidden">
+        <p>Processing audio...</p>
+    </div>
 </div>
 
 <script>
 let mediaRecorder;
 let audioChunks = [];
+let audioStream;
+let recordingStartTime;
+let timerInterval;
+let audioContext;
+let analyser;
+let canvasContext;
+let animationFrame;
 
-function startRecording() {
-    navigator.mediaDevices.getUserMedia({ audio: true })
-        .then(stream => {
-            mediaRecorder = new MediaRecorder(stream);
-            mediaRecorder.start();
-            audioChunks = [];
+// Initialize audio visualization
+function initWaveform() {
+    const canvas = document.getElementById('waveform');
+    canvasContext = canvas.getContext('2d');
+    canvas.width = canvas.offsetWidth;
+    canvas.height = 80;
+}
 
-            mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
+// Check browser compatibility
+if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    alert('Your browser does not support audio recording. Please use Chrome, Firefox, or Edge.');
+}
+
+async function toggleRecording() {
+    const recordBtn = document.getElementById('recordBtn');
+    const stopBtn = document.getElementById('stopBtn');
+    
+    try {
+        // Request microphone access
+        audioStream = await navigator.mediaDevices.getUserMedia({ 
+            audio: {
+                echoCancellation: true,
+                noiseSuppression: true,
+                autoGainControl: true
+            } 
         });
+        
+        // Initialize MediaRecorder with options for better compatibility
+        const options = { mimeType: 'audio/webm;codecs=opus' };
+        if (!MediaRecorder.isTypeSupported(options.mimeType)) {
+            options.mimeType = 'audio/webm';
+            if (!MediaRecorder.isTypeSupported(options.mimeType)) {
+                options.mimeType = ''; // Use default
+            }
+        }
+        
+        mediaRecorder = new MediaRecorder(audioStream, options);
+        audioChunks = [];
+        
+        // Setup audio visualization
+        audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        analyser = audioContext.createAnalyser();
+        const source = audioContext.createMediaStreamSource(audioStream);
+        source.connect(analyser);
+        analyser.fftSize = 256;
+        
+        // Set up handlers BEFORE starting
+        mediaRecorder.ondataavailable = (event) => {
+            if (event.data && event.data.size > 0) {
+                audioChunks.push(event.data);
+                console.log('Audio chunk received, size:', event.data.size, 'Total chunks:', audioChunks.length);
+            }
+        };
+        
+        mediaRecorder.onerror = (event) => {
+            console.error('Recording error:', event.error);
+            showError('Recording error occurred. Please try again.');
+            stopRecording();
+        };
+        
+        // Set onstop handler BEFORE starting recording
+        mediaRecorder.onstop = async () => {
+            console.log('Recording stopped. Audio chunks:', audioChunks.length);
+            try {
+                // Check minimum duration
+                const duration = (Date.now() - recordingStartTime) / 1000;
+                console.log('Recording duration:', duration, 'seconds');
+                if (duration < 1) {
+                    showError('Recording too short. Please record at least 1 second of audio.');
+                    resetRecordingUI();
+                    return;
+                }
+                
+                // Check if we have audio data
+                if (audioChunks.length === 0) {
+                    console.error('No audio chunks collected!');
+                    showError('No audio data was recorded. Please try again.');
+                    resetRecordingUI();
+                    return;
+                }
+                
+                // Convert blob to file
+                const blob = new Blob(audioChunks, { type: mediaRecorder.mimeType || 'audio/webm' });
+                console.log('Created blob, size:', blob.size, 'bytes, type:', blob.type);
+                
+                if (blob.size === 0) {
+                    showError('Recorded audio is empty. Please try again.');
+                    resetRecordingUI();
+                    return;
+                }
+                
+                // Show loading indicator
+                document.getElementById('loadingIndicator').classList.remove('hidden');
+                
+                // Send to server
+                const formData = new FormData();
+                const filename = `recording_${Date.now()}.webm`;
+                formData.append('audio', blob, filename);
+                console.log('Sending audio to server...');
+                
+                const response = await fetch('/', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                console.log('Server response status:', response.status);
+                
+                if (response.ok) {
+                    console.log('Server processed successfully, reloading page...');
+                    // Reload to show results
+                    window.location.reload();
+                } else {
+                    const errorText = await response.text();
+                    console.error('Server error:', response.status, errorText);
+                    showError('Failed to process audio. Status: ' + response.status);
+                    document.getElementById('loadingIndicator').classList.add('hidden');
+                    resetRecordingUI();
+                }
+            } catch (error) {
+                console.error('Upload error:', error);
+                showError('Failed to upload audio: ' + error.message);
+                document.getElementById('loadingIndicator').classList.add('hidden');
+                resetRecordingUI();
+            }
+        };
+        
+        // Show recording UI
+        recordBtn.disabled = true;
+        stopBtn.disabled = false;
+        document.getElementById('recordingIndicator').classList.remove('hidden');
+        document.getElementById('waveform').classList.remove('hidden');
+        
+        // Start recording
+        recordingStartTime = Date.now();
+        startTimer();
+        mediaRecorder.start(100); // Collect data every 100ms
+        
+        // Start waveform visualization
+        visualizeWaveform();
+        
+    } catch (error) {
+        console.error('Error accessing microphone:', error);
+        if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
+            showError('Microphone permission denied. Please allow microphone access and try again.');
+        } else if (error.name === 'NotFoundError') {
+            showError('No microphone found. Please connect a microphone and try again.');
+        } else {
+            showError('Failed to access microphone: ' + error.message);
+        }
+    }
 }
 
 function stopRecording() {
-    mediaRecorder.stop();
-    mediaRecorder.onstop = () => {
-        const blob = new Blob(audioChunks, { type: 'audio/wav' });
-        const formData = new FormData();
-        formData.append('audio', blob, 'recorded.wav');
-
-        fetch('/', {
-            method: 'POST',
-            body: formData
-        }).then(() => location.reload());
-    };
+    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+        // Stop the recording first
+        mediaRecorder.stop();
+        stopTimer();
+        
+        // Stop audio stream
+        if (audioStream) {
+            audioStream.getTracks().forEach(track => track.stop());
+            audioStream = null;
+        }
+        
+        // Stop waveform visualization
+        if (animationFrame) {
+            cancelAnimationFrame(animationFrame);
+            animationFrame = null;
+        }
+        
+        // Hide recording UI immediately
+        resetRecordingUI();
+    }
 }
+
+function resetRecordingUI() {
+    document.getElementById('recordBtn').disabled = false;
+    document.getElementById('stopBtn').disabled = true;
+    document.getElementById('recordingIndicator').classList.add('hidden');
+    document.getElementById('waveform').classList.add('hidden');
+}
+
+function startTimer() {
+    recordingStartTime = Date.now();
+    timerInterval = setInterval(() => {
+        const elapsed = Math.floor((Date.now() - recordingStartTime) / 1000);
+        const minutes = Math.floor(elapsed / 60);
+        const seconds = elapsed % 60;
+        document.getElementById('recordingTimer').textContent = 
+            `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+    }, 1000);
+}
+
+function stopTimer() {
+    if (timerInterval) {
+        clearInterval(timerInterval);
+    }
+}
+
+function visualizeWaveform() {
+    if (!analyser || !canvasContext) return;
+    
+    const bufferLength = analyser.frequencyBinCount;
+    const dataArray = new Uint8Array(bufferLength);
+    const canvas = document.getElementById('waveform');
+    
+    function draw() {
+        animationFrame = requestAnimationFrame(draw);
+        
+        analyser.getByteFrequencyData(dataArray);
+        
+        canvasContext.fillStyle = 'rgba(0, 0, 0, 0.1)';
+        canvasContext.fillRect(0, 0, canvas.width, canvas.height);
+        
+        const barWidth = (canvas.width / bufferLength) * 2.5;
+        let barHeight;
+        let x = 0;
+        
+        for (let i = 0; i < bufferLength; i++) {
+            barHeight = (dataArray[i] / 255) * canvas.height;
+            
+            canvasContext.fillStyle = `rgb(${barHeight + 100}, 50, 50)`;
+            canvasContext.fillRect(x, canvas.height - barHeight, barWidth, barHeight);
+            
+            x += barWidth + 1;
+        }
+    }
+    
+    draw();
+}
+
+function getFileExtension(mimeType) {
+    if (mimeType.includes('webm')) return 'webm';
+    if (mimeType.includes('mp4')) return 'mp4';
+    if (mimeType.includes('ogg')) return 'ogg';
+    return 'wav';
+}
+
+function showError(message) {
+    // Create or update error message element
+    let errorDiv = document.querySelector('.error-message');
+    if (!errorDiv) {
+        errorDiv = document.createElement('div');
+        errorDiv.className = 'error-message';
+        document.querySelector('.card').insertBefore(errorDiv, document.querySelector('.card').firstChild);
+    }
+    errorDiv.innerHTML = `<p>❌ ${message}</p>`;
+    setTimeout(() => errorDiv.remove(), 5000);
+}
+
+// Initialize on page load
+window.addEventListener('DOMContentLoaded', () => {
+    initWaveform();
+    
+    // Set feature bar widths from data attributes
+    document.querySelectorAll('.feature-fill').forEach(fill => {
+        const width = fill.getAttribute('data-width');
+        if (width) {
+            fill.style.width = width + '%';
+        }
+    });
+});
 </script>
 
 </body>
