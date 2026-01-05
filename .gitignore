@@ -3,3 +3,9 @@ uploads/
 __pycache__/
 # Datasets
 CREMA-D/
+
+# Trained ML models
+*.joblib
+*.pkl
+model.joblib
+models/
