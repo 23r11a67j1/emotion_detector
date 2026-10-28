@@ -9,3 +9,7 @@ CREMA-D/
 *.pkl
 model.joblib
 models/
+
+# Local editor configuration and accidental nested clone
+.vscode/
+/XAI_SER/

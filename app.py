@@ -171,6 +171,9 @@ import joblib
 import shap
 from sklearn.preprocessing import StandardScaler
 import time
+import subprocess
+import tempfile
+import imageio_ffmpeg
 
 app = Flask(__name__)
 
@@ -262,7 +265,7 @@ def predict_live_with_voting(audio_path, k=15):
     y, sr = librosa.load(audio_path, sr=16000)
     y, _ = librosa.effects.trim(y, top_db=25)
 
-    if len(y) < sr * 2:
+    if len(y) < sr * 3:
         raise ValueError("Live audio too short. Record at least 3 seconds.")
 
     # normalize for stable features
@@ -360,6 +363,21 @@ def index():
                 filename = audio.filename if audio.filename else f"record_{int(time.time())}.wav"
                 path = os.path.join(UPLOAD_FOLDER, filename)
                 audio.save(path)
+                # Decode browser recordings to PCM before passing them to librosa.
+                if os.path.splitext(path)[1].lower() in {'.webm', '.mp4', '.ogg'}:
+                    with tempfile.TemporaryDirectory() as temp_dir:
+                        decoded = os.path.join(temp_dir, 'audio.wav')
+                        conversion = subprocess.run(
+                            [imageio_ffmpeg.get_ffmpeg_exe(), '-nostdin', '-y',
+                             '-i', path, '-vn', '-ac', '1', '-ar', '16000', decoded],
+                            capture_output=True, timeout=60,
+                        )
+                        if conversion.returncode:
+                            raise ValueError('Unable to decode this recording. Please record again or upload a WAV file.')
+                        y, sr = librosa.load(decoded, sr=16000)
+                        import soundfile as sf
+                        path = path + '.wav'
+                        sf.write(path, y, sr)
 
                 # ====================================================
                 # ✅ Decide whether it's live recording or upload
@@ -397,7 +415,7 @@ def index():
                 )
 
             except Exception as e:
-                error = str(e)
+                error = str(e) or 'Audio could not be decoded. Please try a WAV file or record again.'
 
     return render_template(
         "index.html",

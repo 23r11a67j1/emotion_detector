@@ -6,4 +6,5 @@ scikit-learn>=1.0.0
 joblib>=1.0.0
 soundfile>=0.10.0
 shap>=0.40.0
+imageio-ffmpeg>=0.6.0
 pydub>=0.25.0  # For audio format conversion (optional but recommended)

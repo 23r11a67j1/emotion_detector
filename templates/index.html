@@ -174,8 +174,8 @@ async function toggleRecording() {
                 // Check minimum duration
                 const duration = (Date.now() - recordingStartTime) / 1000;
                 console.log('Recording duration:', duration, 'seconds');
-                if (duration < 1) {
-                    showError('Recording too short. Please record at least 1 second of audio.');
+                if (duration < 3) {
+                    showError('Recording too short. Please record at least 3 seconds of speech.');
                     resetRecordingUI();
                     return;
                 }
@@ -203,7 +203,7 @@ async function toggleRecording() {
                 
                 // Send to server
                 const formData = new FormData();
-                const filename = `recording_${Date.now()}.webm`;
+                const filename = `recording_${Date.now()}.${getFileExtension(blob.type)}`;
                 formData.append('audio', blob, filename);
                 console.log('Sending audio to server...');
                 
@@ -215,9 +215,15 @@ async function toggleRecording() {
                 console.log('Server response status:', response.status);
                 
                 if (response.ok) {
-                    console.log('Server processed successfully, reloading page...');
-                    // Reload to show results
-                    window.location.reload();
+                    const html = await response.text();
+                    const result = new DOMParser().parseFromString(html, 'text/html');
+                    const card = result.querySelector('.card');
+                    if (!card) throw new Error('Invalid analysis response.');
+                    document.querySelector('.card').replaceWith(card);
+                    initWaveform();
+                    document.querySelectorAll('.feature-fill').forEach(fill => {
+                        fill.style.width = fill.dataset.width + '%';
+                    });
                 } else {
                     const errorText = await response.text();
                     console.error('Server error:', response.status, errorText);
@@ -337,6 +343,7 @@ function visualizeWaveform() {
     
     draw();
 }
+
 
 function getFileExtension(mimeType) {
     if (mimeType.includes('webm')) return 'webm';
