@@ -161,6 +161,6 @@ The project achieves accurate emotion classification and provides an easy-to-use
 
 👤 Author
 
-D. Akshaya
+S. Yaseen Ahmed
 Major Project – Speech Emotion Recognition
 Python | Machine Learning | Audio Processing
